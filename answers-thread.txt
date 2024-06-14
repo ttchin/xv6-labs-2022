@@ -1,0 +1,13 @@
+Q1: Why are there missing keys with 2 threads, but not with 1 thread? Identify a sequence of events with 2 threads that can lead to a key being missing. Submit your sequence with a short explanation in answers-thread.txt
+
+Answer:
+table[0]: entry(0, 0)
+
+thread 0 trys to insert (5,0)
+entry(5,0)->entry(0,0)
+
+thread 1 trys to insert (10,1)
+entry(10,1)->entry(0,0)
+
+Then entry(5,0) is missing.
+
