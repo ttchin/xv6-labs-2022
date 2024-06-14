@@ -17,8 +17,7 @@ struct entry *table[NBUCKET];
 int keys[NKEYS];
 int nthread = 1;
 
-pthread_mutex_t g_lock;
-
+pthread_mutex_t g_lock[NBUCKET];
 
 double
 now()
@@ -54,9 +53,9 @@ void put(int key, int value)
     e->value = value;
   } else {
     // the new is new.
-    pthread_mutex_lock(&g_lock);
+    pthread_mutex_lock(&g_lock[i]);
     insert(key, value, &table[i], table[i]);
-    pthread_mutex_unlock(&g_lock);
+    pthread_mutex_unlock(&g_lock[i]);
   }
 
 }
@@ -123,7 +122,9 @@ main(int argc, char *argv[])
   }
 
   // init the lock
-  pthread_mutex_init(&g_lock, NULL);
+  for (int i = 0; i < NBUCKET; i++) {
+    pthread_mutex_init(&g_lock[i], NULL);
+  }
 
   //
   // first the puts
