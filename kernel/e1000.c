@@ -102,8 +102,36 @@ e1000_transmit(struct mbuf *m)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
   //
-  
-  return 0;
+
+  int ret = 0;
+
+  // 1. First ask the E1000 for the TX ring index at which it's expecting the next packet, by reading the E1000_TDT control register.
+  int tail = regs[E1000_TDT];
+  // 2. Then check if the the ring is overflowing. If E1000_TXD_STAT_DD is not set in the descriptor indexed by E1000_TDT, the E1000 hasn't finished the corresponding previous transmission request, so return an error.
+  if ((tx_ring[tail].status & E1000_TXD_STAT_DD) == 0) {
+    printf("tx ring buffer is overflow");
+    ret = -1;
+  }
+  // 3. Otherwise, use mbuffree() to free the last mbuf that was transmitted from that descriptor (if there was one).
+  if (ret == 0 && tx_mbufs[tail] != 0) {
+    mbuffree(tx_mbufs[tail]);
+  }
+  // 4. Then fill in the descriptor. m->head points to the packet's content in memory, and m->len is the packet length. Set the necessary cmd flags (look at Section 3.3 in the E1000 manual) and stash away a pointer to the mbuf for later freeing.
+  if ( ret == 0) {
+    struct tx_desc *td = &tx_ring[tail];
+    td->addr = (uint64)m->head;
+    td->length = (uint16)m->len;
+    td->cmd |= E1000_TXD_CMD_EOP;
+    td->cmd |= E1000_TXD_CMD_RS;
+    tx_mbufs[tail] = m;
+  }
+  // 5. Finally, update the ring position by adding one to E1000_TDT modulo TX_RING_SIZE.
+  if (ret == 0) {
+    regs[E1000_TDT] = (tail + 1) % TX_RING_SIZE;
+  }
+
+  // If e1000_transmit() added the mbuf successfully to the ring, return 0. On failure (e.g., there is no descriptor available to transmit the mbuf), return -1 so that the caller knows to free the mbuf.
+  return ret;
 }
 
 static void
@@ -115,6 +143,7 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
+  printf("qinchao: recv ...\n");
 }
 
 void
