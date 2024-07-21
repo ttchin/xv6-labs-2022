@@ -106,10 +106,12 @@ e1000_transmit(struct mbuf *m)
   int ret = 0;
 
   // 1. First ask the E1000 for the TX ring index at which it's expecting the next packet, by reading the E1000_TDT control register.
+  acquire(&e1000_lock);
   int tail = regs[E1000_TDT];
   // 2. Then check if the the ring is overflowing. If E1000_TXD_STAT_DD is not set in the descriptor indexed by E1000_TDT, the E1000 hasn't finished the corresponding previous transmission request, so return an error.
   if ((tx_ring[tail].status & E1000_TXD_STAT_DD) == 0) {
     printf("tx ring buffer is overflow");
+    release(&e1000_lock);
     ret = -1;
   }
   // 3. Otherwise, use mbuffree() to free the last mbuf that was transmitted from that descriptor (if there was one).
@@ -129,6 +131,8 @@ e1000_transmit(struct mbuf *m)
   if (ret == 0) {
     regs[E1000_TDT] = (tail + 1) % TX_RING_SIZE;
   }
+  __sync_synchronize();
+  release(&e1000_lock);
 
   // If e1000_transmit() added the mbuf successfully to the ring, return 0. On failure (e.g., there is no descriptor available to transmit the mbuf), return -1 so that the caller knows to free the mbuf.
   return ret;
@@ -142,8 +146,29 @@ e1000_recv(void)
   //
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
-  //
-  printf("qinchao: recv ...\n");
+
+  int tail = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+
+  if ((rx_ring[tail].status & E1000_RXD_STAT_DD) == 0) {
+    printf("rx_ring[%d] is not available\n", tail);
+    return;
+  }
+
+  while (rx_ring[tail].status & E1000_RXD_STAT_DD) {
+    acquire(&e1000_lock);
+    struct mbuf *mb = rx_mbufs[tail];
+    mbufput(mb, rx_ring[tail].length);
+    rx_mbufs[tail] = mbufalloc(0);
+    if (!rx_mbufs[tail])
+      panic("e1000_recv malloc");
+    rx_ring[tail].addr = (uint64)(rx_mbufs[tail]->head);
+    rx_ring[tail].status = 0;
+    regs[E1000_RDT] = tail;
+    __sync_synchronize();
+    release(&e1000_lock);
+    net_rx(mb);
+    tail = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+  }
 }
 
 void
